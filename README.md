@@ -88,7 +88,6 @@ On SIGINT and other terminating signals, make sure temporary files are removed.
 Autodetect data in URL so that the --embedded/--playlist/--svtplay options are not
 necessary.
 
-
 References
 ----------
 
