@@ -83,7 +83,11 @@ Run 'hls-fetch --help' for further usage information.
 Future
 ------
 
-Nothing is planned for the future right now.
+On SIGINT and other terminating signals, make sure temporary files are removed.
+
+Autodetect data in URL so that the --embedded/--playlist/--svtplay options are not
+necessary.
+
 
 References
 ----------
