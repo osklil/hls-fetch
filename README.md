@@ -4,8 +4,13 @@ hls-fetch
 Introduction
 ------------
 
-hls-fetch is a small program that downloads and decrypts HTTP Live Streaming (HLS) videos,
-commonly used for streaming to Apple iOS devices.
+hls-fetch is a small program that downloads and decrypts HTTP Live Streaming
+(HLS) videos. HLS is commonly used for streaming video on Apple iOS devices.
+
+hls-fetch can download videos from web pages with embedded <video> tags,
+from SVT Play (svtplay.se), or from M3U playlist directly. It will
+decrypt streams if necessary and assemble individual segments, to produce a
+single MPEG transport stream (.ts) file playable in most media players.
 
 It is written in Perl.
 
@@ -46,22 +51,22 @@ The latest hls-fetch can be downloaded from GitHub:
 Requirements
 ------------
 
- * Perl 5.10.0 (or later)
+ * Perl 5.10.0 (or later).
    Debian: perl
 
- * OpenSSL (only needed for encrypted streams)
+ * OpenSSL (only needed for encrypted streams).
    Debian: openssl
 
- * HTML::Parser Perl module
+ * HTML::Parser Perl module.
    Debian: libhtml-parser-perl
 
- * LWP::UserAgent Perl module
+ * LWP::UserAgent Perl module.
    Debian: libwww-perl
 
- * JSON Perl module
+ * JSON Perl module.
    Debian: libjson-perl
 
- * URI Perl module
+ * URI Perl module.
    Debian: liburi-perl
 
 Usage
@@ -83,5 +88,8 @@ Nothing is planned for the future right now.
 References
 ----------
 
- * HTTP Streaming with Encryption under Linux
+ * HTTP Streaming with Encryption under Linux:
    <http://www.opensolutions.ie/blog/2010/08/http-streaming-with-encryption-under-linux/>
+
+ * HTTP Live Streaming:
+   <http://en.wikipedia.org/wiki/HTTP_Live_Streaming> 
