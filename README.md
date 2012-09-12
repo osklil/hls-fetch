@@ -7,6 +7,8 @@ Introduction
 hls-fetch is a small program that downloads and decrypts HTTP Live Streaming (HLS) videos,
 commonly used for streaming to Apple iOS devices.
 
+It is written in Perl.
+
 Author and Feedback
 -------------------
 
