@@ -181,7 +181,7 @@ my $cryptkey;
 if (defined $cryptkey_url) {
   print "URL (key): $cryptkey_url\n" if $opt{'verbose'};
   $cryptkey = eval { fetch_url($cryptkey_url) }; die "$cryptkey_url: cannot fetch encryption key: $@" if $@;
-  $cryptkey = join('', map { sprintf('%02x', ord) } split(//, $cryptkey));
+  $cryptkey = unpack('H*',$cryptkey);
   print "Key: $cryptkey\n" if $opt{'verbose'};
 }
 
