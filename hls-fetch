@@ -27,7 +27,8 @@ use URI::URL;
 use constant READ_SIZE => 1024;
 
 my %opt = ('bandwidth' => 'max');
-Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'verbose|v', 'version', 'help') || exit 1;
+Getopt::Long::GetOptions(\%opt,'embedded','svtplay','playlist','output|o=s',
+                         'bandwidth|b=s','key|k=s','quiet|q','verbose|v','version','help') || exit 1;
 
 if ($opt{'version'}) {
   print "hls-fetch 0.1\n";
@@ -47,6 +48,7 @@ if ($opt{'help'}) {
   print "  -o, --output=FILE     save video to FILE rather than \"video.ts\"\n";
   print "  -b, --bandwidth=SPEC  pick video with specified bandwidth (bits/s),\n";
   print "                        lowest (\"min\") or highest (\"max\") (default max)\n";
+  print "  -k, --key=HEX         specify encryption key (overrides key URI)\n";
   print "  -v, --verbose         explain what is being done\n";
   print "  -q, --quiet           no output other than errors\n";
   print "      --help            display this help and exit\n";
@@ -160,7 +162,7 @@ if (!grep { /^#EXTINF:/ } @lines) {
 }
 
 my $sequence = 0;
-my (%segment_urls, $cryptkey_url);
+my (%segment_urls, $cryptkey_uri);
 foreach my $line (@lines) {
   if ($line =~ /^#EXT-X-MEDIA-SEQUENCE:(\d+)$/) {
     $sequence = $1;
@@ -168,8 +170,8 @@ foreach my $line (@lines) {
   } elsif ($line =~ /^#EXT-X-KEY:(.*)$/) {
     my %attr = parse_m3u_attribs($url, $1);
     die "$url: unsupported encryption method $attr{'METHOD'} in playlist\n" if exists $attr{'METHOD'} && $attr{'METHOD'} ne 'AES-128';
-    $cryptkey_url = $attr{'URI'};
-    die "$url: missing encryption key URI in playlist\n" if !defined $cryptkey_url;
+    $cryptkey_uri = $attr{'URI'};
+    die "$url: missing encryption key URI in playlist\n" if !defined $cryptkey_uri;
   } elsif ($line !~ /^#EXT/) {
     $segment_urls{$sequence} = $line;
     $sequence++;
@@ -178,10 +180,9 @@ foreach my $line (@lines) {
 die "$url: no segments in playlist\n" if !scalar keys %segment_urls;
 
 my $cryptkey;
-if (defined $cryptkey_url) {
-  print "URL (key): $cryptkey_url\n" if $opt{'verbose'};
-  $cryptkey = eval { fetch_url($cryptkey_url) }; die "$cryptkey_url: cannot fetch encryption key: $@" if $@;
-  $cryptkey = unpack('H*',$cryptkey);
+if (defined $cryptkey_uri) {
+  print "URI (key): $cryptkey_uri\n" if $opt{'verbose'};
+  $cryptkey = eval { resolve_key_uri($cryptkey_uri) }; die "$cryptkey_uri: cannot fetch encryption key: $@" if $@;
   print "Key: $cryptkey\n" if $opt{'verbose'};
 }
 
@@ -197,7 +198,7 @@ foreach my $sequence (sort { $a <=> $b } keys %segment_urls) {
   close $segment_fh;
   eval {
     eval { fetch_url($segment_url, $segment_file) }; die "$segment_url: cannot not fetch segment: $@" if $@;
-    if (defined $cryptkey_url) {
+    if (defined $cryptkey_uri) {
       my ($decrypt_fh, $decrypt_file) = tempfile();
       close $decrypt_fh;
       my $iv = sprintf('%032x', $sequence);
@@ -231,6 +232,16 @@ sub parse_m3u_attribs {
     $attr{$key} = $val;
   }
   return %attr;
+}
+
+sub resolve_key_uri {
+  my $uri = shift;
+  my $k;
+  if ( defined($k=$opt{'key'}) )         {print "#RESOLVED_KEY_URI: $k\n"}
+  elsif ( index($uri,'http://')==0
+          || index($uri,'https://')==0 ) {$k=unpack('H*',fetch_url($uri))}
+  else                                   {print "unable to resolve key URI: $uri\n"}
+  return $k
 }
 
 sub fetch_url {
