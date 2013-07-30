@@ -27,6 +27,7 @@ License
 -------
 
 hls-fetch is copyright (C) 2012 Oskar Liljeblad.
+Minor contributions    (C) 2013 Laurent Faureytier.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

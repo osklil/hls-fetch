@@ -182,7 +182,7 @@ die "$url: no segments in playlist\n" if !scalar keys %segment_urls;
 my $cryptkey;
 if (defined $cryptkey_uri) {
   print "URI (key): $cryptkey_uri\n" if $opt{'verbose'};
-  $cryptkey = eval { resolve_key_uri($cryptkey_uri) }; die "$cryptkey_uri: cannot fetch encryption key: $@" if $@;
+  $cryptkey = eval { resolve_key_uri($cryptkey_uri) }; die "$cryptkey_uri: cannot resolve for encryption key: $@" if $@;
   print "Key: $cryptkey\n" if $opt{'verbose'};
 }
 
@@ -197,7 +197,7 @@ foreach my $sequence (sort { $a <=> $b } keys %segment_urls) {
   my ($segment_fh, $segment_file) = tempfile();
   close $segment_fh;
   eval {
-    eval { fetch_url($segment_url, $segment_file) }; die "$segment_url: cannot not fetch segment: $@" if $@;
+    eval { fetch_url($segment_url, $segment_file) }; die "$segment_url: cannot fetch segment: $@" if $@;
     if (defined $cryptkey_uri) {
       my ($decrypt_fh, $decrypt_file) = tempfile();
       close $decrypt_fh;
@@ -237,10 +237,10 @@ sub parse_m3u_attribs {
 sub resolve_key_uri {
   my $uri = shift;
   my $k;
-  if ( defined($k=$opt{'key'}) )         {print "#RESOLVED_KEY_URI: $k\n"}
+  if ( defined($k=$opt{'key'}) )         {}
   elsif ( index($uri,'http://')==0
           || index($uri,'https://')==0 ) {$k=unpack('H*',fetch_url($uri))}
-  else                                   {print "unable to resolve key URI: $uri\n"}
+  else                                   {}
   return $k
 }
 
