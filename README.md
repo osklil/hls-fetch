@@ -18,6 +18,7 @@ Author and Feedback
 -------------------
 
 hls-fetch is written by Oskar Liljeblad <oskar@osk.mine.nu>.
+Minor contributions by Laurent Faureytier (lfaureyt@github).
 
 This software is a work in progress and there are probably many ways it can
 still be improved. If you'd like to contribute patches, ideas, or bug
@@ -27,7 +28,6 @@ License
 -------
 
 hls-fetch is copyright (C) 2012 Oskar Liljeblad.
-Minor contributions    (C) 2013 Laurent Faureytier.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
