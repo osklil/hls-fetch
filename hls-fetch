@@ -27,10 +27,11 @@ use URI::URL;
 use constant READ_SIZE => 1024;
 
 my %opt = ('bandwidth' => 'max');
-Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'verbose|v', 'version', 'help') || exit 1;
+Getopt::Long::GetOptions(\%opt,'embedded','svtplay','playlist','output|o=s',
+                         'bandwidth|b=s','key|k=s','keycache=s','quiet|q','verbose|v','version','help') || exit 1;
 
 if ($opt{'version'}) {
-  print "hls-fetch 0.1\n";
+  print "hls-fetch 0.2\n";
   print "Copyright (C) 2012 Oskar Liljeblad\n";
   print "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.\n";
   print "This is free software: you are free to change and redistribute it.\n";
@@ -47,6 +48,11 @@ if ($opt{'help'}) {
   print "  -o, --output=FILE     save video to FILE rather than \"video.ts\"\n";
   print "  -b, --bandwidth=SPEC  pick video with specified bandwidth (bits/s),\n";
   print "                        lowest (\"min\") or highest (\"max\") (default max)\n";
+  print "      --keycache=FILE   specify URI-addressed cache file for encryptions keys\n";
+  print "                        (cache hit overrides key resolution from URI)\n";
+  print "                        expects a flat text file with one <URI><space><key><eol> entry per line\n";
+  print "  -k, --key=HEX         specify encryption key\n";
+  print "                        (unconditionnally overrides key resolution and cache)\n";
   print "  -v, --verbose         explain what is being done\n";
   print "  -q, --quiet           no output other than errors\n";
   print "      --help            display this help and exit\n";
@@ -71,6 +77,15 @@ my $browser = LWP::UserAgent->new;
 my $video_file = $opt{'output'};
 open(my $video_fh, '>', $video_file) || die "$video_file: cannot open file: $!\n";
 
+# load key cache
+my %keycache;
+if ($opt{'keycache'}) {
+  my $kkhfile=$opt{'keycache'};
+  open(KKHF,'<'.$kkhfile) || die "$kkhfile: cannot open key cache file: $!\n";
+  %keycache = map { split } <KKHF>;
+  close KKHF
+}
+
 if ($opt{'svtplay'}) {
   my $data = eval { fetch_url($url) }; die "$url: cannot fetch page: $@" if $@;
   my $parser = HTML::Parser->new(api_version => 3, start_h => [\&handle_svtplay_tag, 'tagname,@attr']);
@@ -78,7 +93,8 @@ if ($opt{'svtplay'}) {
 
   sub handle_svtplay_tag {
     my ($tag, %attr) = @_;
-    if ($tag eq 'a' && exists $attr{'id'} && $attr{'id'} eq 'player' && exists $attr{'data-json-href'} && exists $attr{'data-title'}) {
+    if ($tag eq 'a' && exists $attr{'id'} && $attr{'id'} eq 'player'
+        && exists $attr{'data-json-href'} && exists $attr{'data-title'}) {
       $json_path = $attr{'data-json-href'};
       $json_title = $attr{'data-title'};
     }
@@ -160,29 +176,39 @@ if (!grep { /^#EXTINF:/ } @lines) {
 }
 
 my $sequence = 0;
-my (%segment_urls, $cryptkey_url);
+my (%segment_urls, $cryptkey_uri, $cryptiv);
 foreach my $line (@lines) {
   if ($line =~ /^#EXT-X-MEDIA-SEQUENCE:(\d+)$/) {
     $sequence = $1;
     print "First sequence number: $sequence\n" if $opt{'verbose'};
   } elsif ($line =~ /^#EXT-X-KEY:(.*)$/) {
     my %attr = parse_m3u_attribs($url, $1);
-    die "$url: unsupported encryption method $attr{'METHOD'} in playlist\n" if exists $attr{'METHOD'} && $attr{'METHOD'} ne 'AES-128';
-    $cryptkey_url = $attr{'URI'};
-    die "$url: missing encryption key URI in playlist\n" if !defined $cryptkey_url;
+    die "$url: unsupported encryption method $attr{'METHOD'} in playlist\n"
+        if exists $attr{'METHOD'} && $attr{'METHOD'} ne 'AES-128';
+    $cryptkey_uri = $attr{'URI'};
+    $cryptiv = $attr{'IV'};
+    if ( defined($cryptiv) ) {
+      $cryptiv =~ s/^0x//io;
+      # Normalize IV notation (for openssl)
+      $cryptiv = substr(('00'x16).$cryptiv,-32)
+    }
+    die "$url: missing encryption key URI in playlist\n" if !defined $cryptkey_uri;
   } elsif ($line !~ /^#EXT/) {
     $segment_urls{$sequence} = $line;
-    $sequence++;
+    $sequence++
   }
 }
 die "$url: no segments in playlist\n" if !scalar keys %segment_urls;
 
+# required prototype
+sub resolve_key_uri($$);
 my $cryptkey;
-if (defined $cryptkey_url) {
-  print "URL (key): $cryptkey_url\n" if $opt{'verbose'};
-  $cryptkey = eval { fetch_url($cryptkey_url) }; die "$cryptkey_url: cannot fetch encryption key: $@" if $@;
-  $cryptkey = join('', map { sprintf('%02x', ord) } split(//, $cryptkey));
+if (defined $cryptkey_uri) {
+  print "URI (key): $cryptkey_uri\n" if $opt{'verbose'};
+  $cryptkey = eval { resolve_key_uri($cryptkey_uri,$url) };
+  die "$cryptkey_uri: cannot resolve for encryption key: $@" if $@;
   print "Key: $cryptkey\n" if $opt{'verbose'};
+  print "IV:  $cryptiv\n"  if defined($cryptiv) && $opt{'verbose'};
 }
 
 print "Segments: ", scalar keys %segment_urls, "\n" if $opt{'verbose'};
@@ -196,11 +222,11 @@ foreach my $sequence (sort { $a <=> $b } keys %segment_urls) {
   my ($segment_fh, $segment_file) = tempfile();
   close $segment_fh;
   eval {
-    eval { fetch_url($segment_url, $segment_file) }; die "$segment_url: cannot not fetch segment: $@" if $@;
-    if (defined $cryptkey_url) {
+    eval { fetch_url($segment_url, $segment_file) }; die "$segment_url: cannot fetch segment: $@" if $@;
+    if (defined $cryptkey_uri) {
       my ($decrypt_fh, $decrypt_file) = tempfile();
       close $decrypt_fh;
-      my $iv = sprintf('%032x', $sequence);
+      my $iv = defined($cryptiv)?$cryptiv:sprintf('%032x', $sequence);
       my @cmd = ('openssl', 'aes-128-cbc', '-d', '-in', $segment_file, '-out', $decrypt_file, '-K', $cryptkey, '-iv', $iv);
       system @cmd;
       unlink $segment_file || warn "$segment_file: cannot remove file: $!\n";
@@ -231,6 +257,29 @@ sub parse_m3u_attribs {
     $attr{$key} = $val;
   }
   return %attr;
+}
+sub absolute_key_url($$)
+{
+  my ($rel,$base)=@_;
+  return (index($rel,'://')<1)
+      ? url($rel,$base)->abs()->as_string()
+      : $rel
+}
+sub resolve_key_uri($$) {
+  my ($uri,$base_url) = @_;
+  my $k;
+  # key specified from cmd-line ?
+  if ( defined($k=$opt{'key'}) )         {}
+  # key original URI found in keycache ?
+  elsif ( defined($k=$keycache{$uri}) )  {}
+  # retry keycache lookup assuming original key URI was a relative URL
+  elsif ( $uri=absolute_key_url($uri,$base_url),
+          defined($k=$keycache{$uri}) )  {}
+  # keys can only be fetched through http URLs
+  elsif ( index($uri,'http://')!=0
+          && index($uri,'https://')!=0 ) {}
+  else                                   {$k=unpack('H*',fetch_url($uri))}
+  return $k
 }
 
 sub fetch_url {

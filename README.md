@@ -18,6 +18,7 @@ Author and Feedback
 -------------------
 
 hls-fetch is written by Oskar Liljeblad <oskar@osk.mine.nu>.
+Minor contributions by Laurent Faureytier (lfaureyt@github).
 
 This software is a work in progress and there are probably many ways it can
 still be improved. If you'd like to contribute patches, ideas, or bug
@@ -87,6 +88,8 @@ On SIGINT and other terminating signals, make sure temporary files are removed.
 
 Autodetect data in URL so that the --embedded/--playlist/--svtplay options are not
 necessary.
+
+Support SAMPLE-AES encryption method.
 
 References
 ----------
