@@ -27,7 +27,7 @@ use URI::URL;
 use constant READ_SIZE => 1024;
 
 my %opt = ('bandwidth' => 'max');
-Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'verbose|v', 'version', 'help') || exit 1;
+Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'verbose|v', 'nodecrypt', 'version', 'help') || exit 1;
 
 if ($opt{'version'}) {
   print "hls-fetch 0.1\n";
@@ -49,6 +49,7 @@ if ($opt{'help'}) {
   print "                        lowest (\"min\") or highest (\"max\") (default max)\n";
   print "  -v, --verbose         explain what is being done\n";
   print "  -q, --quiet           no output other than errors\n";
+  print "      --nodecrypt       skip the decryption of the stream, even if stream must be decrypted\n";
   print "      --help            display this help and exit\n";
   print "      --version         output version information and exit\n";
   print "\nDecryption requires openssl.\n";
@@ -65,6 +66,11 @@ if (!exists $opt{'output'}) {
   $opt{'output'} = 'video.ts';
   warn "no output file specified, assuming video.ts\n" if !$opt{'quiet'};
 }
+
+if (!exists $opt{'nodecrypt'}) {
+  $opt{'nodecrypt'} = 0;
+}
+
 my ($url) = @ARGV;
 my $browser = LWP::UserAgent->new;
 
@@ -178,7 +184,7 @@ foreach my $line (@lines) {
 die "$url: no segments in playlist\n" if !scalar keys %segment_urls;
 
 my $cryptkey;
-if (defined $cryptkey_url) {
+if (!$opt{'nodecrypt'} && (defined $cryptkey_url)) {
   print "URL (key): $cryptkey_url\n" if $opt{'verbose'};
   $cryptkey = eval { fetch_url($cryptkey_url) }; die "$cryptkey_url: cannot fetch encryption key: $@" if $@;
   $cryptkey = join('', map { sprintf('%02x', ord) } split(//, $cryptkey));
@@ -197,7 +203,7 @@ foreach my $sequence (sort { $a <=> $b } keys %segment_urls) {
   close $segment_fh;
   eval {
     eval { fetch_url($segment_url, $segment_file) }; die "$segment_url: cannot not fetch segment: $@" if $@;
-    if (defined $cryptkey_url) {
+    if (!$opt{'nodecrypt'} && (defined $cryptkey_url)) {
       my ($decrypt_fh, $decrypt_file) = tempfile();
       close $decrypt_fh;
       my $iv = sprintf('%032x', $sequence);
