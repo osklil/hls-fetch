@@ -121,7 +121,7 @@ elsif ($opt{'embedded'}) {
 }
 
 my $data = eval { fetch_url($url) }; die "$url: cannot fetch playlist: $@" if $@;
-my @lines = split(/\r?\n/, $data);
+my @lines = split(/\r*\n|\r\n*/, $data);
 die "$url: invalid playlist, no header\n" if @lines < 1 || $lines[0] ne '#EXTM3U';
 
 if (!grep { /^#EXTINF:/ } @lines) {
