@@ -80,7 +80,7 @@ if ($opt{'svtplay'}) {
 
   sub handle_svtplay_tag {
     my ($tag, %attr) = @_;
-    if ($tag eq 'a' && exists $attr{'id'} && $attr{'id'} eq 'player' && exists $attr{'data-json-href'} && exists $attr{'data-title'}) {
+    if ($tag eq 'a' && exists $attr{'id'} && $attr{'id'} =~ /^player($|_)/ && exists $attr{'data-json-href'} && exists $attr{'data-title'}) {
       $json_path = $attr{'data-json-href'};
       $json_title = $attr{'data-title'};
     }
