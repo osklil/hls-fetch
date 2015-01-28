@@ -27,7 +27,7 @@ use URI::URL;
 use constant READ_SIZE => 1024;
 
 my %opt = ('bandwidth' => 'max');
-Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'verbose|v', 'no-decrypt', 'version', 'help') || exit 1;
+Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'force|f', 'verbose|v', 'no-decrypt', 'version', 'help') || exit 1;
 
 if ($opt{'version'}) {
   print "hls-fetch 0.1\n";
@@ -45,6 +45,7 @@ if ($opt{'help'}) {
   print "      --playlist        URL refers to an M3U (m3u8) playlist\n";
   print "      --svtplay         URL refers to an SVT Play page (svtplay.se)\n";
   print "  -o, --output=FILE     save video to FILE rather than \"video.ts\"\n";
+  print "  -f, --force           force overwriting existing output file\n";
   print "  -b, --bandwidth=SPEC  pick video with specified bandwidth (bits/s),\n";
   print "                        lowest (\"min\") or highest (\"max\") (default max)\n";
   print "  -v, --verbose         explain what is being done\n";
@@ -72,6 +73,7 @@ my $browser = LWP::UserAgent->new;
 $browser->cookie_jar({});
 
 my $video_file = $opt{'output'};
+die "$video_file: file exists, not overwriting without -f/--force\n" if !$opt{'force'} && -e $video_file;
 open(my $video_fh, '>', $video_file) || die "$video_file: cannot open file: $!\n";
 
 if ($opt{'svtplay'}) {
