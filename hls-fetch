@@ -163,7 +163,7 @@ if (!grep { /^#EXTINF:/ } @lines) {
 }
 
 my $sequence = 0;
-my (%segment_urls, $cryptkey_url);
+my (%segments, $cryptkey_url);
 foreach my $line (@lines) {
   if ($line =~ /^#EXT-X-MEDIA-SEQUENCE:(\d+)$/) {
     $sequence = $1;
@@ -174,37 +174,47 @@ foreach my $line (@lines) {
     $cryptkey_url = $attr{'URI'};
     die "$url: missing encryption key URI in playlist\n" if !defined $cryptkey_url;
   } elsif ($line !~ /^#EXT/) {
-    $segment_urls{$sequence} = $line;
+    $segments{$sequence} = { 'url' => $line, 'cryptkey_url' => $cryptkey_url };
     $sequence++;
   }
 }
-die "$url: no segments in playlist\n" if !scalar keys %segment_urls;
+die "$url: no segments in playlist\n" if !scalar keys %segments;
 
-my $cryptkey;
-if (!$opt{'no-decrypt'} && defined $cryptkey_url) {
-  print "URL (key): $cryptkey_url\n" if $opt{'verbose'};
-  $cryptkey = eval { fetch_url($cryptkey_url) }; die "$cryptkey_url: cannot fetch encryption key: $@" if $@;
-  $cryptkey = join('', map { sprintf('%02x', ord) } split(//, $cryptkey));
-  print "Key: $cryptkey\n" if $opt{'verbose'};
-}
-
-print "Segments: ", scalar keys %segment_urls, "\n" if $opt{'verbose'};
+my %cryptkeys;
+#my $cryptkey;
+#if (defined $cryptkey_url) {
+#  print "URL (key): $cryptkey_url\n" if $opt{'verbose'};
+#  $cryptkey = eval { fetch_url($cryptkey_url) }; die "$cryptkey_url: cannot fetch encryption key: $@" if $@;
+#  $cryptkey = join('', map { sprintf('%02x', ord) } split(//, $cryptkey));
+#  print "Key: $cryptkey\n" if $opt{'verbose'};
+#}
+print "Segments: ", scalar keys %segments, "\n" if $opt{'verbose'};
 
 $| = 1;
-foreach my $sequence (sort { $a <=> $b } keys %segment_urls) {
-  my $segment_url = url($segment_urls{$sequence}, $url)->abs()->as_string();
+foreach my $sequence (sort { $a <=> $b } keys %segments) {
+  my $segment = $segments{$sequence};
+  my $segment_url = url($segment->{'url'}, $url)->abs()->as_string();
   print "URL (segment $sequence): $segment_url\n" if $opt{'verbose'};
-  printf "\r%d/%d", $sequence, scalar keys %segment_urls if !$opt{'quiet'} && !$opt{'verbose'};
+  printf "\r%d/%d", $sequence, scalar keys %segments if !$opt{'quiet'} && !$opt{'verbose'};
+
+  if (!$opt{'no-decrypt'} && defined $segment->{'cryptkey_url'} && !exists $cryptkeys{$segment->{'cryptkey_url'}}) {
+    print "URL (key): ", $segment->{'cryptkey_url'}, "\n" if $opt{'verbose'};
+    my $cryptkey = eval { fetch_url($segment->{'cryptkey_url'}) };
+    die "$segment->{'cryptkey_url'}: cannot fetch encryption key: $@" if $@;
+    $cryptkey = join('', map { sprintf('%02x', ord) } split(//, $cryptkey));
+    print "Key: $cryptkey\n" if $opt{'verbose'};
+    $cryptkeys{$segment->{'cryptkey_url'}} = $cryptkey;
+  }
 
   my ($segment_fh, $segment_file) = tempfile();
   close $segment_fh;
   eval {
     eval { fetch_url($segment_url, $segment_file) }; die "$segment_url: cannot not fetch segment: $@" if $@;
-    if (!$opt{'no-decrypt'} && defined $cryptkey_url) {
+    if (!$opt{'no-decrypt'} && defined $segment->{'cryptkey_url'}) {
       my ($decrypt_fh, $decrypt_file) = tempfile();
       close $decrypt_fh;
       my $iv = sprintf('%032x', $sequence);
-      my @cmd = ('openssl', 'aes-128-cbc', '-d', '-in', $segment_file, '-out', $decrypt_file, '-K', $cryptkey, '-iv', $iv);
+      my @cmd = ('openssl', 'aes-128-cbc', '-d', '-in', $segment_file, '-out', $decrypt_file, '-K', $cryptkeys{$segment->{'cryptkey_url'}}, '-iv', $iv);
       system @cmd;
       unlink $segment_file || warn "$segment_file: cannot remove file: $!\n";
       $segment_file = $decrypt_file;
