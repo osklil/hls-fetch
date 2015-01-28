@@ -69,6 +69,7 @@ if (!exists $opt{'output'}) {
 
 my ($url) = @ARGV;
 my $browser = LWP::UserAgent->new;
+$browser->cookie_jar({});
 
 my $video_file = $opt{'output'};
 open(my $video_fh, '>', $video_file) || die "$video_file: cannot open file: $!\n";
