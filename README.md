@@ -69,6 +69,9 @@ Requirements
  * URI Perl module.
    Debian: liburi-perl
 
+ * Parallel::ForkManager Perl module.
+   Debian: libparallel-forkmanager-perl
+
 Usage
 -----
 

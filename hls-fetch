@@ -22,12 +22,31 @@ use Getopt::Long;
 use HTML::Parser;
 use LWP::UserAgent;
 use JSON;
-use File::Temp qw(tempfile);
+use File::Temp qw(tempdir);
+use File::Path qw(rmtree);
 use URI::URL;
 use constant READ_SIZE => 1024;
+use Parallel::ForkManager;
+
+sub DIE_handler {
+  my ($dieString) = @_;
+  File::Temp::cleanup();
+  CORE::die "$dieString\n";
+}
+
+sub SIG_handler{
+  File::Temp::cleanup();
+  CORE::die "$!\n";
+}
+
+$SIG{__DIE__} = 'DIE_handler';
+$SIG{'INT'} = 'SIG_handler';
+$SIG{'ABRT'} = 'SIG_handler';
+$SIG{'TERM'} = 'SIG_handler';
+$SIG{'KILL'} = 'SIG_handler';
 
 my %opt = ('bandwidth' => 'max');
-Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'force|f', 'verbose|v', 'no-decrypt', 'version', 'help') || exit 1;
+Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist', 'output|o=s', 'bandwidth|b=s', 'nthread|n=i', 'quiet|q', 'force|f', 'verbose|v', 'no-decrypt', 'version', 'help') || exit 1;
 
 if ($opt{'version'}) {
   print "hls-fetch 0.1\n";
@@ -48,6 +67,7 @@ if ($opt{'help'}) {
   print "  -f, --force           force overwriting existing output file\n";
   print "  -b, --bandwidth=SPEC  pick video with specified bandwidth (bits/s),\n";
   print "                        lowest (\"min\") or highest (\"max\") (default max)\n";
+  print "  -n, --nthread         number of process to download in parallel (default 10)\n";
   print "  -v, --verbose         explain what is being done\n";
   print "  -q, --quiet           no output other than errors\n";
   print "      --no-decrypt      skip decryption even if stream should be decrypted\n";
@@ -67,13 +87,20 @@ if (!exists $opt{'output'}) {
   $opt{'output'} = 'video.ts';
   warn "no output file specified, assuming video.ts\n" if !$opt{'quiet'};
 }
+if (!exists $opt{'nthread'}) {
+  $opt{'nthread'} = 10;
+  warn "Using default amout of thread: 10\n" if !$opt{'quiet'};
+}
 
+my $forkmanager = new Parallel::ForkManager( $opt{'nthread'} );
 my ($url) = @ARGV;
 my $browser = LWP::UserAgent->new;
 $browser->cookie_jar({});
 
 my $video_file = $opt{'output'};
 die "$video_file: file exists, not overwriting without -f/--force\n" if !$opt{'force'} && -e $video_file;
+my $tmpdir = tempdir("hls-fetch-XXXXXXXXXX", CLEANUP => 1);
+
 open(my $video_fh, '>', $video_file) || die "$video_file: cannot open file: $!\n";
 
 if ($opt{'svtplay'}) {
@@ -183,21 +210,16 @@ foreach my $line (@lines) {
 die "$url: no segments in playlist\n" if !scalar keys %segments;
 
 my %cryptkeys;
-#my $cryptkey;
-#if (defined $cryptkey_url) {
-#  print "URL (key): $cryptkey_url\n" if $opt{'verbose'};
-#  $cryptkey = eval { fetch_url($cryptkey_url) }; die "$cryptkey_url: cannot fetch encryption key: $@" if $@;
-#  $cryptkey = join('', map { sprintf('%02x', ord) } split(//, $cryptkey));
-#  print "Key: $cryptkey\n" if $opt{'verbose'};
-#}
 print "Segments: ", scalar keys %segments, "\n" if $opt{'verbose'};
-
 $| = 1;
 foreach my $sequence (sort { $a <=> $b } keys %segments) {
+  
   my $segment = $segments{$sequence};
+  my $pid = $forkmanager->start and next;
+  
   my $segment_url = url($segment->{'url'}, $url)->abs()->as_string();
   print "URL (segment $sequence): $segment_url\n" if $opt{'verbose'};
-  printf "\r%d/%d", $sequence, scalar keys %segments if !$opt{'quiet'} && !$opt{'verbose'};
+  printf "\rDownloading %d/%d", $sequence, scalar keys %segments if !$opt{'quiet'} && !$opt{'verbose'};
 
   if (!$opt{'no-decrypt'} && defined $segment->{'cryptkey_url'} && !exists $cryptkeys{$segment->{'cryptkey_url'}}) {
     print "URL (key): ", $segment->{'cryptkey_url'}, "\n" if $opt{'verbose'};
@@ -207,34 +229,48 @@ foreach my $sequence (sort { $a <=> $b } keys %segments) {
     print "Key: $cryptkey\n" if $opt{'verbose'};
     $cryptkeys{$segment->{'cryptkey_url'}} = $cryptkey;
   }
+  
+  my $segment_file = "$tmpdir/$sequence.ts";
 
-  my ($segment_fh, $segment_file) = tempfile();
+  open(my $segment_fh, '>', "$segment_file") || die "$segment_file: cannot open file: $!\n";
   close $segment_fh;
   eval {
-    eval { fetch_url($segment_url, $segment_file) }; die "$segment_url: cannot not fetch segment: $@" if $@;
+    eval { fetch_url($segment_url, "$segment_file") }; die "$segment_url: cannot not fetch segment: $@" if $@;
     if (!$opt{'no-decrypt'} && defined $segment->{'cryptkey_url'}) {
-      my ($decrypt_fh, $decrypt_file) = tempfile();
+      open(my $decrypt_fh, '>', "$segment_file.decript") || die "$segment_file.decript: cannot open file: $!\n";
       close $decrypt_fh;
       my $iv = sprintf('%032x', $sequence);
-      my @cmd = ('openssl', 'aes-128-cbc', '-d', '-in', $segment_file, '-out', $decrypt_file, '-K', $cryptkeys{$segment->{'cryptkey_url'}}, '-iv', $iv);
+      my @cmd = ('openssl', 'aes-128-cbc', '-d', '-in', "$segment_file", '-out', "$segment_file.decript", '-K', $cryptkeys{$segment->{'cryptkey_url'}}, '-iv', $iv);
       system @cmd;
-      unlink $segment_file || warn "$segment_file: cannot remove file: $!\n";
-      $segment_file = $decrypt_file;
+      unlink "$segment_file" || warn "$segment_file: cannot remove file: $!\n";
+      rename "$segment_file.decript", "$segment_file";
       die "$segment_file: openssl failed (status $?)\n" if $? != 0;
     }
-    open ($segment_fh, '<', $segment_file) || die "$segment_file: cannot open file: $!\n";
-    for (;;) {
-      my $size = sysread($segment_fh, $data, READ_SIZE);
-      die "$segment_file: cannot read from file: $!\n" if !defined $size;
-      last if $size == 0;
-      die "$video_file: cannot write to file: $!\n" if !defined syswrite($video_fh, $data);
-    }
-    close $segment_fh;
   };
-  unlink $segment_file || warn "$segment_file: cannot remove file: $!\n";
   die $@ if $@;
+  
+  $forkmanager->finish;
 }
+
+$forkmanager->wait_all_children;
+print "\nDownload completed...\n" if !$opt{'quiet'} && !$opt{'verbose'};
+foreach my $sequence (sort { $a <=> $b } keys %segments) {
+  printf "\rReassembling stream %d/%d", $sequence, scalar keys %segments if !$opt{'quiet'} && !$opt{'verbose'};
+  my $segment_file = "$tmpdir/$sequence.ts";
+  open (my $segment_fh, '<', "$segment_file") || die "$segment_file: cannot open file: $!\n";
+  for (;;) {
+    my $size = sysread($segment_fh, $data, READ_SIZE);
+    die "$segment_file: cannot read from file: $!\n" if !defined $size;
+    last if $size == 0;
+    die "$video_file: cannot write to file: $!\n" if !defined syswrite($video_fh, $data);
+  }
+  close $segment_fh;
+  unlink $segment_file || warn "$segment_file: cannot remove file: $!\n";
+}
+rmtree $tmpdir;
+
 close $video_fh;
+print "\nStream reassembled!\n" if !$opt{'quiet'} && !$opt{'verbose'};
 
 sub parse_m3u_attribs {
   my ($url, $attr_str) = @_;
