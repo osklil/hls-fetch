@@ -211,7 +211,7 @@ foreach my $sequence (sort { $a <=> $b } keys %segments) {
   my ($segment_fh, $segment_file) = tempfile();
   close $segment_fh;
   eval {
-    eval { fetch_url($segment_url, $segment_file) }; die "$segment_url: cannot not fetch segment: $@" if $@;
+    eval { fetch_url($segment_url, $segment_file) }; warn "$segment_url: cannot fetch segment: $@" if $@;
     if (!$opt{'no-decrypt'} && defined $segment->{'cryptkey_url'}) {
       my ($decrypt_fh, $decrypt_file) = tempfile();
       close $decrypt_fh;
