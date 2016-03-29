@@ -27,7 +27,7 @@ use URI::URL;
 use constant READ_SIZE => 1024;
 
 my %opt = ('bandwidth' => 'max');
-Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'force|f', 'verbose|v', 'no-decrypt', 'version', 'help') || exit 1;
+Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'force|f', 'verbose|v', 'disable-ssl-checks', 'no-decrypt', 'version', 'help') || exit 1;
 
 if ($opt{'version'}) {
   print "hls-fetch 0.1\n";
@@ -41,18 +41,19 @@ if ($opt{'version'}) {
 if ($opt{'help'}) {
   print "Usage: hls-fetch [OPTION]... URL\n";
   print "Download and decrypt videos served by the HTTP Live Streaming (HLS) protocol.\n\n";
-  print "      --embedded        URL refers to a page with <video> tag (default)\n";
-  print "      --playlist        URL refers to an M3U (m3u8) playlist\n";
-  print "      --svtplay         URL refers to an SVT Play page (svtplay.se)\n";
-  print "  -o, --output=FILE     save video to FILE rather than \"video.ts\"\n";
-  print "  -f, --force           force overwriting existing output file\n";
-  print "  -b, --bandwidth=SPEC  pick video with specified bandwidth (bits/s),\n";
-  print "                        lowest (\"min\") or highest (\"max\") (default max)\n";
-  print "  -v, --verbose         explain what is being done\n";
-  print "  -q, --quiet           no output other than errors\n";
-  print "      --no-decrypt      skip decryption even if stream should be decrypted\n";
-  print "      --help            display this help and exit\n";
-  print "      --version         output version information and exit\n";
+  print "      --embedded           URL refers to a page with <video> tag (default)\n";
+  print "      --playlist           URL refers to an M3U (m3u8) playlist\n";
+  print "      --svtplay            URL refers to an SVT Play page (svtplay.se)\n";
+  print "  -o, --output=FILE        save video to FILE rather than \"video.ts\"\n";
+  print "  -f, --force              force overwriting existing output file\n";
+  print "  -b, --bandwidth=SPEC     pick video with specified bandwidth (bits/s),\n";
+  print "                           lowest (\"min\") or highest (\"max\") (default max)\n";
+  print "  -v, --verbose            explain what is being done\n";
+  print "  -q, --quiet              no output other than errors\n";
+  print "      --disable-ssl-checks disable ssl checls\n";
+  print "      --no-decrypt         skip decryption even if stream should be decrypted\n";
+  print "      --help               display this help and exit\n";
+  print "      --version            output version information and exit\n";
   print "\nDecryption requires openssl.\n";
   print "\nReport bugs to Oskar Liljeblad <oskar\@osk.mine.nu>.\n";
   exit 0;
@@ -70,6 +71,10 @@ if (!exists $opt{'output'}) {
 
 my ($url) = @ARGV;
 my $browser = LWP::UserAgent->new;
+if ($opt{'disable-ssl-checks'}) {
+	$browser->ssl_opts( verify_hostname => 0 );
+	$browser->ssl_opts( SSL_verify_mode => 0);
+}
 $browser->cookie_jar({});
 
 my $video_file = $opt{'output'};
