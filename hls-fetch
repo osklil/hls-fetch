@@ -25,6 +25,7 @@ use JSON;
 use File::Temp qw(tempfile);
 use URI::URL;
 use constant READ_SIZE => 1024;
+use Time::HiRes qw( time sleep);
 
 my %opt = ('bandwidth' => 'max');
 Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist|p', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'force|f', 'skip-comments|s', 'verbose|v', 'no-decrypt', 'version', 'help') || exit 1;
@@ -125,8 +126,8 @@ elsif ($opt{'embedded'}) {
   $url = url($index_url, $url)->abs()->as_string();
   print "URL (master): $url\n" if $opt{'verbose'};
 }
-
 my $data = eval { fetch_url($url) }; die "$url: cannot fetch playlist: $@" if $@;
+my ($data, $size) = eval { fetch_url($url) }; die "$url: cannot fetch playlist: $@" if $@;
 my @lines = split(/\r*\n|\r\n*/, $data);
 die "$url: invalid playlist, no header\n" if @lines < 1 || $lines[0] ne '#EXTM3U';
 
@@ -164,7 +165,7 @@ if (!grep { /^#EXTINF:/ } @lines) {
   $url = url($stream->{'URL'}, $url)->abs()->as_string();
   print "URL (index): $url\n" if $opt{'verbose'};
 
-  $data = eval { fetch_url($url) }; die "$url: cannot fetch playlist: $@" if $@;
+  ($data, $size) = eval { fetch_url($url) }; die "$url: cannot fetch playlist: $@" if $@;
   @lines = split(/\r?\n/, $data);
   die "$url: invalid playlist, no header\n" if @lines < 1 || $lines[0] ne '#EXTM3U';
 }
@@ -216,7 +217,7 @@ foreach my $sequence (sort { $a <=> $b } keys %segments) {
   my ($segment_fh, $segment_file) = tempfile();
   close $segment_fh;
   eval {
-    eval { fetch_url($segment_url, $segment_file) }; die "$segment_url: cannot not fetch segment: $@" if $@;
+    eval { ($data, $size, $elapsed) = fetch_url($segment_url, $segment_file) }; die "$segment_url: cannot not fetch segment: $@" if $@;
     if (!$opt{'no-decrypt'} && defined $segment->{'cryptkey_url'}) {
       my ($decrypt_fh, $decrypt_file) = tempfile();
       close $decrypt_fh;
@@ -254,14 +255,15 @@ sub parse_m3u_attribs {
 }
 
 sub fetch_url {
+  my $start_time = time();
   my ($url, $filename) = @_;
   if (defined $filename) {
     my $response = $browser->get($url, ":content_file" => $filename);
     die $response->status_line(), "\n" if !$response->is_success;
-    return undef;
+    return (undef, $response->content_length, time() - $start_time);
   } else {
     my $response = $browser->get($url);
     die $response->status_line(), "\n" if !$response->is_success;
-    return $response->decoded_content();
+    return ($response->decoded_content(), $response->content_length, time() - $start_time);
   }
 }
