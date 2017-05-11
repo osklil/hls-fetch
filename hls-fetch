@@ -25,9 +25,10 @@ use JSON;
 use File::Temp qw(tempfile);
 use URI::URL;
 use constant READ_SIZE => 1024;
+use Time::HiRes qw( time sleep);
 
 my %opt = ('bandwidth' => 'max');
-Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'force|f', 'verbose|v', 'no-decrypt', 'version', 'help') || exit 1;
+Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist|p', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'force|f', 'skip-comments|s', 'count|c=i', 'verbose|v', 'no-decrypt', 'version', 'help') || exit 1;
 
 if ($opt{'version'}) {
   print "hls-fetch 0.1\n";
@@ -42,12 +43,14 @@ if ($opt{'help'}) {
   print "Usage: hls-fetch [OPTION]... URL\n";
   print "Download and decrypt videos served by the HTTP Live Streaming (HLS) protocol.\n\n";
   print "      --embedded        URL refers to a page with <video> tag (default)\n";
-  print "      --playlist        URL refers to an M3U (m3u8) playlist\n";
+  print "  -p, --playlist        URL refers to an M3U (m3u8) playlist\n";
   print "      --svtplay         URL refers to an SVT Play page (svtplay.se)\n";
   print "  -o, --output=FILE     save video to FILE rather than \"video.ts\"\n";
   print "  -f, --force           force overwriting existing output file\n";
   print "  -b, --bandwidth=SPEC  pick video with specified bandwidth (bits/s),\n";
   print "                        lowest (\"min\") or highest (\"max\") (default max)\n";
+  print "  -s, --skip-comments   allows to skip comments in M3U (m3u8) playlist without dying\n";
+  print "  -c, --count           perform only a fixed number of HTTP GET requests\n";
   print "  -v, --verbose         explain what is being done\n";
   print "  -q, --quiet           no output other than errors\n";
   print "      --no-decrypt      skip decryption even if stream should be decrypted\n";
@@ -125,7 +128,7 @@ elsif ($opt{'embedded'}) {
   print "URL (master): $url\n" if $opt{'verbose'};
 }
 
-my $data = eval { fetch_url($url) }; die "$url: cannot fetch playlist: $@" if $@;
+my ($data, $size) = eval { fetch_url($url) }; die "$url: cannot fetch playlist: $@" if $@;
 my @lines = split(/\r*\n|\r\n*/, $data);
 die "$url: invalid playlist, no header\n" if @lines < 1 || $lines[0] ne '#EXTM3U';
 
@@ -136,7 +139,11 @@ if (!grep { /^#EXTINF:/ } @lines) {
       $last_stream = { parse_m3u_attribs($url, $1) };
       push @streams, $last_stream;
     } elsif ($line !~ /^#EXT/) {
-      die "$url: missing #EXT-X-STREAM-INF for URL: $line\n" if !defined $last_stream;
+      if ($opt{'skip-comments'}) {
+        #warn "$url: skipping line not beginning with #EXT\n";
+      } else {
+        die "$url: missing #EXT-X-STREAM-INF for URL: $line\n" if !defined $last_stream;
+      }
       $last_stream->{'URL'} = $line;
       $last_stream = undef;
     }
@@ -159,7 +166,7 @@ if (!grep { /^#EXTINF:/ } @lines) {
   $url = url($stream->{'URL'}, $url)->abs()->as_string();
   print "URL (index): $url\n" if $opt{'verbose'};
 
-  $data = eval { fetch_url($url) }; die "$url: cannot fetch playlist: $@" if $@;
+  ($data, $size) = eval { fetch_url($url) }; die "$url: cannot fetch playlist: $@" if $@;
   @lines = split(/\r?\n/, $data);
   die "$url: invalid playlist, no header\n" if @lines < 1 || $lines[0] ne '#EXTM3U';
 }
@@ -193,10 +200,19 @@ my %cryptkeys;
 print "Segments: ", scalar keys %segments, "\n" if $opt{'verbose'};
 
 $| = 1;
+my $chunk_count = 0;
 foreach my $sequence (sort { $a <=> $b } keys %segments) {
   my $segment = $segments{$sequence};
   my $segment_url = url($segment->{'url'}, $url)->abs()->as_string();
-  print "URL (segment $sequence): $segment_url\n" if $opt{'verbose'};
+
+  if ($segment_url =~ /ts$/) {
+    $chunk_count++;
+    if (exists $opt{'count'} && $chunk_count > $opt{'count'} ) {
+      warn "first ", $opt{'count'}, " chunk requested, exiting\n" if $opt{'verbose'};
+      last;
+    }
+  }
+  print "URL (segment $sequence): $segment_url\t" if $opt{'verbose'};
   printf "\r%d/%d", $sequence, scalar keys %segments if !$opt{'quiet'} && !$opt{'verbose'};
 
   if (!$opt{'no-decrypt'} && defined $segment->{'cryptkey_url'} && !exists $cryptkeys{$segment->{'cryptkey_url'}}) {
@@ -210,8 +226,9 @@ foreach my $sequence (sort { $a <=> $b } keys %segments) {
 
   my ($segment_fh, $segment_file) = tempfile();
   close $segment_fh;
+  my ($data, $size, $elapsed) = 0, 0, 0;
   eval {
-    eval { fetch_url($segment_url, $segment_file) }; die "$segment_url: cannot not fetch segment: $@" if $@;
+    eval { ($data, $size, $elapsed) = fetch_url($segment_url, $segment_file) }; die "$segment_url: cannot not fetch segment: $@" if $@;
     if (!$opt{'no-decrypt'} && defined $segment->{'cryptkey_url'}) {
       my ($decrypt_fh, $decrypt_file) = tempfile();
       close $decrypt_fh;
@@ -231,6 +248,8 @@ foreach my $sequence (sort { $a <=> $b } keys %segments) {
     }
     close $segment_fh;
   };
+  printf("%.0f\t%.03f\n", $size/READ_SIZE, $elapsed) if $opt{'verbose'};
+
   unlink $segment_file || warn "$segment_file: cannot remove file: $!\n";
   die $@ if $@;
 }
@@ -249,14 +268,15 @@ sub parse_m3u_attribs {
 }
 
 sub fetch_url {
+  my $start_time = time();
   my ($url, $filename) = @_;
   if (defined $filename) {
     my $response = $browser->get($url, ":content_file" => $filename);
     die $response->status_line(), "\n" if !$response->is_success;
-    return undef;
+    return (undef, $response->content_length, time() - $start_time);
   } else {
     my $response = $browser->get($url);
     die $response->status_line(), "\n" if !$response->is_success;
-    return $response->decoded_content();
+    return ($response->decoded_content(), $response->content_length, time() - $start_time);
   }
 }
