@@ -27,7 +27,7 @@ use URI::URL;
 use constant READ_SIZE => 1024;
 
 my %opt = ('bandwidth' => 'max');
-Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'force|f', 'skip-comments|s', 'verbose|v', 'no-decrypt', 'version', 'help') || exit 1;
+Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist|p', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'force|f', 'skip-comments|s', 'verbose|v', 'no-decrypt', 'version', 'help') || exit 1;
 
 if ($opt{'version'}) {
   print "hls-fetch 0.1\n";
@@ -42,7 +42,7 @@ if ($opt{'help'}) {
   print "Usage: hls-fetch [OPTION]... URL\n";
   print "Download and decrypt videos served by the HTTP Live Streaming (HLS) protocol.\n\n";
   print "      --embedded        URL refers to a page with <video> tag (default)\n";
-  print "      --playlist        URL refers to an M3U (m3u8) playlist\n";
+  print "  -p, --playlist        URL refers to an M3U (m3u8) playlist\n";
   print "      --svtplay         URL refers to an SVT Play page (svtplay.se)\n";
   print "  -o, --output=FILE     save video to FILE rather than \"video.ts\"\n";
   print "  -f, --force           force overwriting existing output file\n";
