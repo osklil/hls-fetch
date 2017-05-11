@@ -27,7 +27,7 @@ use URI::URL;
 use constant READ_SIZE => 1024;
 
 my %opt = ('bandwidth' => 'max');
-Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'force|f', 'verbose|v', 'no-decrypt', 'version', 'help') || exit 1;
+Getopt::Long::GetOptions(\%opt, 'embedded', 'svtplay', 'playlist', 'output|o=s', 'bandwidth|b=s', 'quiet|q', 'force|f', 'skip-comments|s', 'verbose|v', 'no-decrypt', 'version', 'help') || exit 1;
 
 if ($opt{'version'}) {
   print "hls-fetch 0.1\n";
@@ -48,6 +48,7 @@ if ($opt{'help'}) {
   print "  -f, --force           force overwriting existing output file\n";
   print "  -b, --bandwidth=SPEC  pick video with specified bandwidth (bits/s),\n";
   print "                        lowest (\"min\") or highest (\"max\") (default max)\n";
+  print "  -s, --skip-comments   allows to skip comments in M3U (m3u8) playlist without dying\n";
   print "  -v, --verbose         explain what is being done\n";
   print "  -q, --quiet           no output other than errors\n";
   print "      --no-decrypt      skip decryption even if stream should be decrypted\n";
@@ -136,7 +137,11 @@ if (!grep { /^#EXTINF:/ } @lines) {
       $last_stream = { parse_m3u_attribs($url, $1) };
       push @streams, $last_stream;
     } elsif ($line !~ /^#EXT/) {
-      die "$url: missing #EXT-X-STREAM-INF for URL: $line\n" if !defined $last_stream;
+      if ($opt{'skip-comments'}) {
+        #warn "$url: skipping line not beginning with #EXT\n";
+      } else {
+        die "$url: missing #EXT-X-STREAM-INF for URL: $line\n" if !defined $last_stream;
+      }
       $last_stream->{'URL'} = $line;
       $last_stream = undef;
     }
